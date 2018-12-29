@@ -2,14 +2,20 @@
 #include <WiFiUdp.h>
 #include "WiFiSettings.h" // Make sure to put your SSID and PSK in this file.
 
-const unsigned int LocalPortUDP = 3000;
+#define TRACE_LOGGING true
 
-const char* Host = "192.168.0.106";
+const unsigned int LocalPortUDP = 3000;
+const unsigned int WatchdogTimeout = 5000;
+
+const IPAddress ServerAddress(192, 168, 0, 106);
 const int RemotePortTCP = 1765;
 const int RemotePortUDP = 2765;
 
 char PacketBufferUDP[UDP_TX_PACKET_MAX_SIZE];
 char ReplyBufferUDP[UDP_TX_PACKET_MAX_SIZE];
+unsigned long LastWatchdog = 0;
+
+void (*PacketHandlers[0xFF])(byte* Packet, bool IsUDP); // Array of function pointers (packet handling functions).
 
 WiFiUDP UDP;
 WiFiClient TCP;
@@ -27,8 +33,13 @@ void setup()
     Serial.println();
     Serial.print("WiFi connected. IP: ");
     Serial.println(WiFi.localIP());
-    
-    //UDP.begin(LocalPortUDP); // Listen for incoming packets.
+    PacketHandlers[0xF0] = handleWatchdog; // WATCHDOG_FROM_SERVER
+    PacketHandlers[0xF1] = handleInvalid; // WATCHDOG_FROM_CLIENT, should never be received by another client.
+    // TODO: Implement remaining packet handlers.
+    //PacketHandlers[0xF2] = handlePacketBufferResize; // BUFFER_LENGTH_CHANGE
+    //PacketHandlers[0xF3] = handleTimeSync; // TIME_SYNCHRONIZATION
+    PacketHandlers[0xF4] = handleInvalid; // HANDSHAKE_FROM_CLIENT, should never be received by another client.
+    PacketHandlers[0xF5] = handleInvalid; // HANDSHAKE_FROM_SERVER, should not be received outside of the connection building block, so is ignored otherwise.
 }
 
 void loop()
@@ -37,7 +48,7 @@ void loop()
     Serial.println("=====");
     Serial.println("Attempting server connections...");
 
-    if(!TCP.connect(Host, RemotePortTCP))
+    if(!TCP.connect(ServerAddress, RemotePortTCP))
     {
         Serial.println("Server TCP connection failed, retrying in 5s...");
         delay(5000);
@@ -47,13 +58,12 @@ void loop()
     // TODO: Allow client name customization
     // TODO: Send some kind of timestamp?
     // TODO: Properly generate length (not hardcoded)
-    // TODO: Properly send local UDP port (not hardcoded)
     byte HandshakeTCP[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Timestamp
                         0xF4, // Packet ID (HANDSHAKE_FROM_CLIENT)
                         0, 21, // Length
                         0x00, // Latency Management (NONE)
                         0xC0, // Version
-                        0x0B, 0xB8, // Local UDP port (3000)
+                        ((LocalPortUDP >> 8) & 0xFF), (LocalPortUDP & 0xFF), // Local UDP port
                         0x00, 0x45, 0x00, 0x53, 0x00, 0x50}; // Name ("ESP")
     
     if(TCP.connected())
@@ -141,32 +151,138 @@ void loop()
         return;
     }
 
-    delay(10000);
+    // Make UDP connection
+    UDP.begin(LocalPortUDP); // Listen for incoming packets.
 
+    // Prepare watchdog timer
+    LastWatchdog = millis();
 
-/*
-    int PacketSize = UDP.parsePacket();
-    if(PacketSize > 0)
+    do
     {
-        Serial.print("Received packet of size ");
-        Serial.print(PacketSize);
-        Serial.print(" from ");
-        IPAddress RemoteIP = UDP.RemoteIP();
-        for(int i = 0; i < 4; i++)
+        // Receive
+
+        int PacketSizeUDP = UDP.parsePacket();
+        if(PacketSizeUDP > 0) // We received a UDP packet
         {
-            Serial.print(RemoteIP[i], DEC);
-            if(i < 3) { Serial.print('.'); }
+            if(TRACE_LOGGING)
+            {
+                Serial.print("Received packet of size ");
+                Serial.print(PacketSizeUDP);
+                Serial.print(" from ");
+                IPAddress RemoteIP = UDP.remoteIP();
+                for(int i = 0; i < 4; i++)
+                {
+                    Serial.print(RemoteIP[i], DEC);
+                    if(i < 3) { Serial.print('.'); }
+                }
+                Serial.print(':');
+                Serial.println(UDP.remotePort());
+            }
+            UDP.read(PacketBufferUDP, UDP_TX_PACKET_MAX_SIZE);
+            if(TRACE_LOGGING)
+            {
+                Serial.print("Contents: ");
+                printHexArray(PacketBufferUDP, PacketSizeUDP);
+                Serial.println();
+            }
+            if(PacketSizeUDP >= 11) // Valid packet.
+            {
+                //TODO: Check packet length.
+                if(PacketHandlers[PacketBufferUDP[8]] == nullptr) { handleUnknown(subArray(PacketBufferUDP, PacketSizeUDP), true); }
+                else { (*PacketHandlers[PacketBufferUDP[8]])(subArray(PacketBufferUDP, PacketSizeUDP), true); }
+            }
         }
-        Serial.print(':');
-        Serial.println(UDP.remotePort());
+        delay(100);
+    }
+    while(LastWatchdog + WatchdogTimeout > millis() && TCP.connected());
 
-        UDP.read(PacketBufferUDP, UDP_TX_PACKET_MAX_SIZE);
-        Serial.print("Contents: ");
-        Serial.println(PacketBuffer);
+    Serial.println("Disconnected from server, attempting to reconnect in 5s...");
+    delay(5000);
+}
 
-        UDP.beginPacket(UDP.RemoteIP(), UDP.RemotePort());
-        UDP.write(ReplyBufferUDP);
-        UDP.endPacket();
-    }*/
-    delay(10);
+void sendPacketTCP(byte* Packet, int Length)
+{
+    if(Length < 11) { Serial.println("Cannot send TCP packet of size less than 11."); return; } // Packets must be at least 11 bytes (header). Any smaller are discarded, as they are invalid.
+    if(TCP.connected())
+    {
+        TCP.write(Packet, Length);
+    }
+}
+
+void sendPacketUDP(byte* Packet, int Length)
+{
+    if(Length < 11) { Serial.println("Cannot send UDP packet of size less than 11."); return; } // Packets must be at least 11 bytes (header). Any smaller are discarded, as they are invalid.
+    if(TRACE_LOGGING)
+    {
+        Serial.print("Sending UDP packet of length ");
+        Serial.print(Length, DEC);
+        Serial.print(", contents ");
+        printHexArray(Packet, Length);
+        Serial.println();
+    }
+    UDP.beginPacket(ServerAddress, RemotePortUDP);
+    UDP.write(Packet, Length);
+    UDP.endPacket();
+}
+
+void handleWatchdog(byte* Packet, bool IsUDP)
+{
+    if(TRACE_LOGGING) { Serial.println("Handling watchdog packet."); }
+    if(!IsUDP) { Serial.println("Received TCP watchdog packet, ignoring."); return; }
+    byte WatchdogResponse[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Timestamp
+                                0xF1, // Packet ID (WATCHDOG_FROM_CLIENT)
+                                0, 11}; // Length
+    sendPacketUDP(WatchdogResponse, sizeof(WatchdogResponse));
+    LastWatchdog = millis();
+}
+
+void handleInvalid(byte* Packet, bool IsUDP)
+{
+    Serial.print("Received invalid ");
+    if(IsUDP) { Serial.print("UDP"); }
+    else { Serial.print("TCP"); }
+    Serial.print(" packet with contents ");
+    printHexArray(Packet, sizeof(Packet));
+    Serial.println();
+}
+
+void handleUnknown(byte* Packet, bool IsUDP)
+{
+    Serial.print("Received unknown ");
+    if(IsUDP) { Serial.print("UDP"); }
+    else { Serial.print("TCP"); }
+    Serial.print(" packet with contents ");
+    printHexArray(Packet, sizeof(Packet));
+    Serial.println();
+}
+
+void printHexArray(char* Array, int Length)
+{
+    Serial.print("[0x");
+    for(int i = 0; i < Length; i++)
+    {
+        if(Array[i] < 0x10) { Serial.print('0'); }
+        Serial.print(Array[i], HEX);
+        if(i < (Length - 1)) { Serial.print(' '); }
+    }
+    Serial.print(']');
+}
+
+void printHexArray(byte* Array, int Length)
+{
+    Serial.print("[0x");
+    for(int i = 0; i < Length; i++)
+    {
+        if(Array[i] < 0x10) { Serial.print('0'); }
+        Serial.print(Array[i], HEX);
+        if(i < (Length - 1)) { Serial.print(' '); }
+    }
+    Serial.print(']');
+}
+
+byte* subArray(char* Array, int Length)
+{
+    byte* Output = new byte[Length];
+    for(int i = 0; i < Length; i++) { Output[i] = Array[i]; }
+    return Output;
 }
