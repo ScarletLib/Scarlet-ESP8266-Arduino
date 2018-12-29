@@ -24,15 +24,16 @@ void setup()
 {
     Serial.begin(115200);
     WiFi.mode(WIFI_STA);
-    WiFi.begin(STASSID, STAPSK);
+    WiFi.begin(STASSID, STAPSK); // From WiFiSettings.h
     while(WiFi.status() != WL_CONNECTED)
     {
         Serial.print('.');
-        delay(500);
+        delay(250);
     }
     Serial.println();
     Serial.print("WiFi connected. IP: ");
     Serial.println(WiFi.localIP());
+
     PacketHandlers[0xF0] = handleWatchdog; // WATCHDOG_FROM_SERVER
     PacketHandlers[0xF1] = handleInvalid; // WATCHDOG_FROM_CLIENT, should never be received by another client.
     // TODO: Implement remaining packet handlers.
@@ -56,16 +57,16 @@ void loop()
     }
 
     // TODO: Allow client name customization
-    // TODO: Send some kind of timestamp?
     // TODO: Properly generate length (not hardcoded)
-    byte HandshakeTCP[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Timestamp
+    byte HandshakeTCP[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Timestamp placeholder
                         0xF4, // Packet ID (HANDSHAKE_FROM_CLIENT)
                         0, 21, // Length
                         0x00, // Latency Management (NONE)
                         0xC0, // Version
                         ((LocalPortUDP >> 8) & 0xFF), (LocalPortUDP & 0xFF), // Local UDP port
                         0x00, 0x45, 0x00, 0x53, 0x00, 0x50}; // Name ("ESP")
-    
+    addTimestamp(HandshakeTCP);
+
     if(TCP.connected())
     {
         Serial.println("Sending handshake to server...");
@@ -109,7 +110,19 @@ void loop()
         delay(5000);
         return;
     }
-    // TODO: Check packet length.
+    
+    short ExpectedPacketLength = (HandshakeRespBuffer[9] << 8) | HandshakeRespBuffer[10];
+    if(ExpectedPacketLength != HandshakeRespLen) // Size mismatch.
+    {
+        Serial.print("Handshake expected length of ");
+        Serial.print(ExpectedPacketLength, DEC);
+        Serial.print(" does not match received length ");
+        Serial.print(HandshakeRespLen, DEC);
+        Serial.println(". Retrying in 5s...");
+        delay(5000);
+        return;
+    }
+
     Serial.print("Server is on Scarlet version ");
     Serial.print(HandshakeRespBuffer[11]); // Server version
     Serial.println('.');
@@ -157,16 +170,15 @@ void loop()
     // Prepare watchdog timer
     LastWatchdog = millis();
 
-    do
+    do // Receive and send until there is a connection issue
     {
-        // Receive
-
+        // Receive UDP
         int PacketSizeUDP = UDP.parsePacket();
         if(PacketSizeUDP > 0) // We received a UDP packet
         {
             if(TRACE_LOGGING)
             {
-                Serial.print("Received packet of size ");
+                Serial.print("Received UDP packet of size ");
                 Serial.print(PacketSizeUDP);
                 Serial.print(" from ");
                 IPAddress RemoteIP = UDP.remoteIP();
@@ -187,12 +199,59 @@ void loop()
             }
             if(PacketSizeUDP >= 11) // Valid packet.
             {
-                //TODO: Check packet length.
-                if(PacketHandlers[PacketBufferUDP[8]] == nullptr) { handleUnknown(subArray(PacketBufferUDP, PacketSizeUDP), true); }
+                short ExpectedPacketLength = (PacketBufferUDP[9] << 8) | PacketBufferUDP[10];
+                if(ExpectedPacketLength != PacketSizeUDP) // Size mismatch.
+                {
+                    Serial.print("UDP packet expected length of ");
+                    Serial.print(ExpectedPacketLength, DEC);
+                    Serial.print(" does not match received length ");
+                    Serial.print(PacketSizeUDP, DEC);
+                    Serial.println(" and will be ignored.");
+                }
+                else if(PacketHandlers[PacketBufferUDP[8]] == nullptr) { handleUnknown(subArray(PacketBufferUDP, PacketSizeUDP), true); }
                 else { (*PacketHandlers[PacketBufferUDP[8]])(subArray(PacketBufferUDP, PacketSizeUDP), true); }
             }
         }
-        delay(100);
+
+        // Receive TCP
+        if(TCP.available() > 0)
+        {
+            unsigned int PacketLen = TCP.available();
+            byte* Packet = new byte[PacketLen];
+            for(int i = 0; i < PacketLen; i++) { Packet[i] = TCP.read(); }
+            if(TRACE_LOGGING)
+            {
+                Serial.print("Received TCP packet of size ");
+                Serial.print(PacketLen);
+                Serial.print(" from ");
+                IPAddress RemoteIP = TCP.remoteIP();
+                for(int i = 0; i < 4; i++)
+                {
+                    Serial.print(RemoteIP[i], DEC);
+                    if(i < 3) { Serial.print('.'); }
+                }
+                Serial.print(':');
+                Serial.println(TCP.remotePort());
+                Serial.print("Contents: ");
+                printHexArray(Packet, PacketLen);
+                Serial.println();
+            }
+            if(PacketLen >= 11)
+            {
+                short ExpectedPacketLength = (Packet[9] << 8) | Packet[10];
+                if(ExpectedPacketLength != PacketSizeUDP) // Size mismatch.
+                {
+                    Serial.print("TCP packet expected length of ");
+                    Serial.print(ExpectedPacketLength, DEC);
+                    Serial.print(" does not match received length ");
+                    Serial.print(PacketSizeUDP, DEC);
+                    Serial.println(" and will be ignored.");
+                }
+                else if(PacketHandlers[Packet[8]] == nullptr) { handleUnknown(Packet, false); }
+                else { (*PacketHandlers[Packet[8]])(Packet, false); }
+            }
+        }
+        delay(20);
     }
     while(LastWatchdog + WatchdogTimeout > millis() && TCP.connected());
 
@@ -229,9 +288,10 @@ void handleWatchdog(byte* Packet, bool IsUDP)
 {
     if(TRACE_LOGGING) { Serial.println("Handling watchdog packet."); }
     if(!IsUDP) { Serial.println("Received TCP watchdog packet, ignoring."); return; }
-    byte WatchdogResponse[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Timestamp
+    byte WatchdogResponse[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Timestamp placeholder
                                 0xF1, // Packet ID (WATCHDOG_FROM_CLIENT)
                                 0, 11}; // Length
+    addTimestamp(WatchdogResponse);
     sendPacketUDP(WatchdogResponse, sizeof(WatchdogResponse));
     LastWatchdog = millis();
 }
@@ -285,4 +345,15 @@ byte* subArray(char* Array, int Length)
     byte* Output = new byte[Length];
     for(int i = 0; i < Length; i++) { Output[i] = Array[i]; }
     return Output;
+}
+
+void addTimestamp(byte* Packet)
+{
+    // TODO: Determine how to get the actual time. Or rely on the server to synchronize us?
+    unsigned long long Timestamp = millis();
+    Timestamp *= 10000;
+    for(int i = 0; i < 8; i++)
+    {
+        Packet[i] = (Timestamp >> ((7 - i) * 8)) & 0xFF;
+    }
 }
