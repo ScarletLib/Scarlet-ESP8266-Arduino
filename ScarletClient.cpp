@@ -241,7 +241,7 @@ void ScarletClient::Tick()
                 )
             }
             else if(PacketHandlers[PacketBufferUDP[8]] == nullptr) { HandleUnknown(SubArray(PacketBufferUDP, PacketSizeUDP), true); }
-            else { (*PacketHandlers[PacketBufferUDP[8]])(SubArray(PacketBufferUDP, PacketSizeUDP), true); }
+            else { (this->*PacketHandlers[PacketBufferUDP[8]])(SubArray(PacketBufferUDP, PacketSizeUDP), true); }
         }
     }
 
@@ -283,7 +283,7 @@ void ScarletClient::Tick()
                 )
             }
             else if(PacketHandlers[Packet[8]] == nullptr) { HandleUnknown(Packet, false); }
-            else { (*PacketHandlers[Packet[8]])(Packet, false); }
+            else { (this->*PacketHandlers[Packet[8]])(Packet, false); }
         }
     }
 }
