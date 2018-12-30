@@ -24,7 +24,7 @@ void setup()
     Serial.println();
     Serial.print("WiFi connected. IP: ");
     Serial.println(WiFi.localIP());
-    Client.AddPacketHandler(0x2D, HandleTestPacket);
+    //Client.AddPacketHandler(0xF0, HandleTestPacket);
 }
 
 void loop()
@@ -35,5 +35,5 @@ void loop()
 
 void HandleTestPacket(byte* Packet, bool IsUDP)
 {
-
+    Serial.println("Got test packet!");
 }

@@ -12,13 +12,14 @@ ScarletClient::ScarletClient(char* ClientName, unsigned int LocalPortUDP, IPAddr
     _RemotePortUDP = PortUDP;
     _DebugMode = DebugMode;
 
-    PacketHandlers[0xF0] = (PacketHandlerFxn)&ScarletClient::HandleWatchdog; // WATCHDOG_FROM_SERVER
-    PacketHandlers[0xF1] = (PacketHandlerFxn)&ScarletClient::HandleInvalid; // WATCHDOG_FROM_CLIENT, should never be received by another client.
+    AddPacketHandlerInt(0xF0, HandleWatchdog);
+    //PacketHandlers[0xF0] = HandleWatchdog; // WATCHDOG_FROM_SERVER
+    //PacketHandlers[0xF1] = (PacketHandlerFxn)&ScarletClient::HandleInvalid; // WATCHDOG_FROM_CLIENT, should never be received by another client.
     // TODO: Implement remaining packet handlers.
     //PacketHandlers[0xF2] = HandlePacketBufferResize; // BUFFER_LENGTH_CHANGE
     //PacketHandlers[0xF3] = HandleTimeSync; // TIME_SYNCHRONIZATION
-    PacketHandlers[0xF4] = (PacketHandlerFxn)&ScarletClient::HandleInvalid; // HANDSHAKE_FROM_CLIENT, should never be received by another client.
-    PacketHandlers[0xF5] = (PacketHandlerFxn)&ScarletClient::HandleInvalid; // HANDSHAKE_FROM_SERVER, should not be received outside of the connection building block, so is ignored otherwise.
+    //PacketHandlers[0xF4] = (PacketHandlerFxn)&ScarletClient::HandleInvalid; // HANDSHAKE_FROM_CLIENT, should never be received by another client.
+    //PacketHandlers[0xF5] = (PacketHandlerFxn)&ScarletClient::HandleInvalid; // HANDSHAKE_FROM_SERVER, should not be received outside of the connection building block, so is ignored otherwise.
 }
 
 void ScarletClient::SetWatchdogTimeout(unsigned int WatchdogTimeout) { _WatchdogTimeout = WatchdogTimeout; }
@@ -241,7 +242,7 @@ void ScarletClient::Tick()
                 )
             }
             else if(PacketHandlers[PacketBufferUDP[8]] == nullptr) { HandleUnknown(SubArray(PacketBufferUDP, PacketSizeUDP), true); }
-            else { (this->*PacketHandlers[PacketBufferUDP[8]])(SubArray(PacketBufferUDP, PacketSizeUDP), true); } // TODO: Borked.
+            else { (this->PacketHandlers[PacketBufferUDP[8]])(SubArray(PacketBufferUDP, PacketSizeUDP), true); } // TODO: Borked.
         }
     }
 
@@ -283,7 +284,7 @@ void ScarletClient::Tick()
                 )
             }
             else if(PacketHandlers[Packet[8]] == nullptr) { HandleUnknown(Packet, false); }
-            else { (this->*PacketHandlers[Packet[8]])(Packet, false); } // TODO: Borked.
+            else { (this->PacketHandlers[Packet[8]])(Packet, false); } // TODO: Borked.
         }
     }
 }
@@ -314,7 +315,13 @@ void ScarletClient::SendPacketUDP(byte* Packet, unsigned int Length)
 // Packet handling
 void ScarletClient::AddPacketHandler(byte PacketID, PacketHandlerFxn Handler)
 {
+    if(PacketID >= 0xF0) { DEBUG(Serial.println("Tried to register invalid packet handler. Cannot use IDs F0 and above, as they are reserved for internal use.");) return; }
     PacketHandlers[PacketID] = Handler;
+}
+
+void ScarletClient::AddPacketHandlerInt(byte PacketID, PacketHandlerFxnInt Handler)
+{
+    PacketHandlersInt[PacketID] = Handler;
 }
 
 void ScarletClient::HandleWatchdog(byte* Packet, bool IsUDP)
