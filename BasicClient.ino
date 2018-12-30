@@ -57,15 +57,15 @@ void loop()
         return;
     }
 
+    unsigned short HandshakeLen = 15 + (strlen(ClientName) * 2);
     if(TRACE_LOGGING)
     {
-        unsigned short HandshakeLen = 15 + (strlen(ClientName) * 2);
         Serial.print("Length of name is ");
         Serial.print((int)strlen(ClientName), DEC);
         Serial.print(" so hanshake packet size will be ");
         Serial.println(HandshakeLen, DEC);
     }
-    
+
     byte* HandshakeTCP = new byte[HandshakeLen] {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Timestamp placeholder
                         0xF4, // Packet ID (HANDSHAKE_FROM_CLIENT)
                         ((HandshakeLen >> 8) & 0xFF), (HandshakeLen & 0xFF), // Length
