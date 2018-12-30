@@ -2,11 +2,12 @@
 #include <WiFiUdp.h>
 #include "WiFiSettings.h" // Make sure to put your SSID and PSK in this file.
 
-#define TRACE_LOGGING true
+#define TRACE_LOGGING false
 
 const unsigned int LocalPortUDP = 3000;
 const unsigned int WatchdogTimeout = 5000;
 
+const char* ClientName = "ESP8266-TestClient";
 const IPAddress ServerAddress(192, 168, 0, 106);
 const int RemotePortTCP = 1765;
 const int RemotePortUDP = 2765;
@@ -56,21 +57,34 @@ void loop()
         return;
     }
 
-    // TODO: Allow client name customization
-    // TODO: Properly generate length (not hardcoded)
-    byte HandshakeTCP[] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Timestamp placeholder
+    if(TRACE_LOGGING)
+    {
+        unsigned short HandshakeLen = 15 + (strlen(ClientName) * 2);
+        Serial.print("Length of name is ");
+        Serial.print((int)strlen(ClientName), DEC);
+        Serial.print(" so hanshake packet size will be ");
+        Serial.println(HandshakeLen, DEC);
+    }
+    
+    byte* HandshakeTCP = new byte[HandshakeLen] {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Timestamp placeholder
                         0xF4, // Packet ID (HANDSHAKE_FROM_CLIENT)
-                        0, 21, // Length
+                        ((HandshakeLen >> 8) & 0xFF), (HandshakeLen & 0xFF), // Length
                         0x00, // Latency Management (NONE)
                         0xC0, // Version
-                        ((LocalPortUDP >> 8) & 0xFF), (LocalPortUDP & 0xFF), // Local UDP port
-                        0x00, 0x45, 0x00, 0x53, 0x00, 0x50}; // Name ("ESP")
+                        ((LocalPortUDP >> 8) & 0xFF), (LocalPortUDP & 0xFF) // Local UDP port
+                        }; // Name (added after)
+
     addTimestamp(HandshakeTCP);
+    for(int i = 0; i < strlen(ClientName); i++) // Add name
+    {
+        HandshakeTCP[15 + (i * 2)] = (ClientName[i] >> 8) & 0xFF;
+        HandshakeTCP[16 + (i * 2)] = ClientName[i] & 0xFF;
+    }
 
     if(TCP.connected())
     {
         Serial.println("Sending handshake to server...");
-        TCP.write(HandshakeTCP, sizeof(HandshakeTCP));
+        TCP.write(HandshakeTCP, HandshakeLen);
         Serial.println("Handshake sent.");
     }
 
@@ -92,8 +106,11 @@ void loop()
     {
         HandshakeRespBuffer[i] = TCP.read();
     }
-    Serial.print("Received handshake response from server of length ");
-    Serial.println(HandshakeRespLen);
+    if(TRACE_LOGGING)
+    {
+        Serial.print("Received handshake response from server of length ");
+        Serial.println(HandshakeRespLen);
+    }
 
     if(HandshakeRespLen < 13)
     {
@@ -123,8 +140,8 @@ void loop()
         return;
     }
 
-    Serial.print("Server is on Scarlet version ");
-    Serial.print(HandshakeRespBuffer[11]); // Server version
+    Serial.print("Server is on Scarlet version 0x");
+    Serial.print(HandshakeRespBuffer[11], HEX); // Server version
     Serial.println('.');
 
     // For future use if version incompability gets introduced.
