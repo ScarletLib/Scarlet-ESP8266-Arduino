@@ -12,13 +12,13 @@ ScarletClient::ScarletClient(char* ClientName, unsigned int LocalPortUDP, IPAddr
     _RemotePortUDP = PortUDP;
     _DebugMode = DebugMode;
 
-    PacketHandlers[0xF0] = ScarletClient::HandleWatchdog; // WATCHDOG_FROM_SERVER
-    PacketHandlers[0xF1] = HandleInvalid; // WATCHDOG_FROM_CLIENT, should never be received by another client.
+    PacketHandlers[0xF0] = &ScarletClient::HandleWatchdog; // WATCHDOG_FROM_SERVER
+    PacketHandlers[0xF1] = &ScarletClient::HandleInvalid; // WATCHDOG_FROM_CLIENT, should never be received by another client.
     // TODO: Implement remaining packet handlers.
     //PacketHandlers[0xF2] = HandlePacketBufferResize; // BUFFER_LENGTH_CHANGE
     //PacketHandlers[0xF3] = HandleTimeSync; // TIME_SYNCHRONIZATION
-    PacketHandlers[0xF4] = HandleInvalid; // HANDSHAKE_FROM_CLIENT, should never be received by another client.
-    PacketHandlers[0xF5] = HandleInvalid; // HANDSHAKE_FROM_SERVER, should not be received outside of the connection building block, so is ignored otherwise.
+    PacketHandlers[0xF4] = &ScarletClient::HandleInvalid; // HANDSHAKE_FROM_CLIENT, should never be received by another client.
+    PacketHandlers[0xF5] = &ScarletClient::HandleInvalid; // HANDSHAKE_FROM_SERVER, should not be received outside of the connection building block, so is ignored otherwise.
 }
 
 void ScarletClient::SetWatchdogTimeout(unsigned int WatchdogTimeout) { _WatchdogTimeout = WatchdogTimeout; }
@@ -240,7 +240,7 @@ void ScarletClient::Tick()
                     Serial.println(" and will be ignored.");
                 )
             }
-            else if(PacketHandlers[PacketBufferUDP[8]] == nullptr) { handleUnknown(SubArray(PacketBufferUDP, PacketSizeUDP), true); }
+            else if(PacketHandlers[PacketBufferUDP[8]] == nullptr) { HandleUnknown(SubArray(PacketBufferUDP, PacketSizeUDP), true); }
             else { (*PacketHandlers[PacketBufferUDP[8]])(SubArray(PacketBufferUDP, PacketSizeUDP), true); }
         }
     }
@@ -282,7 +282,7 @@ void ScarletClient::Tick()
                     Serial.println(" and will be ignored.");
                 )
             }
-            else if(PacketHandlers[Packet[8]] == nullptr) { handleUnknown(Packet, false); }
+            else if(PacketHandlers[Packet[8]] == nullptr) { HandleUnknown(Packet, false); }
             else { (*PacketHandlers[Packet[8]])(Packet, false); }
         }
     }

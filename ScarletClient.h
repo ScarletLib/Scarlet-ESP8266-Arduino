@@ -26,7 +26,7 @@ class ScarletClient
         //void AddPacketHandler(byte PacketID, )
         void SetWatchdogTimeout(unsigned int WatchdogTimeout);
     private:
-        void (*PacketHandlers[0xFF])(byte* Packet, bool IsUDP); // Array of function pointers (packet handling functions).
+        void (ScarletClient::*PacketHandlers[0xFF])(byte* Packet, bool IsUDP); // Array of function pointers (packet handling functions).
         bool Connect();
         void AddTimestamp(byte* Packet);
         void PrintHexArray(char* Array, int Length);
