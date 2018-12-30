@@ -27,8 +27,7 @@ class ScarletClient
         void AddPacketHandler(byte ID, PacketHandlerFxn Handler);
         void SetWatchdogTimeout(unsigned int WatchdogTimeout);
     private:
-        //void (ScarletClient::*PacketHandlers[0xFF])(byte* Packet, bool IsUDP); // Array of function pointers (packet handling functions).
-        typedef void (ScarletClient::*PacketHandlerFxnInt)(ScarletClient *Client, byte* Packet, bool IsUDP); // Janky AF. Why, C++, why?
+        typedef void (ScarletClient::*PacketHandlerFxnInt)(byte* Packet, bool IsUDP); // Janky AF. Why, C++, why?
         PacketHandlerFxn PacketHandlers[0xEF];
         PacketHandlerFxnInt PacketHandlersInt[0x10];
         void AddPacketHandlerInt(byte PacketID, PacketHandlerFxnInt Handler);

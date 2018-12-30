@@ -24,7 +24,7 @@ void setup()
     Serial.println();
     Serial.print("WiFi connected. IP: ");
     Serial.println(WiFi.localIP());
-    //Client.AddPacketHandler(0xF0, HandleTestPacket);
+    Client.AddPacketHandler(0x2D, HandleTestPacket);
 }
 
 void loop()
