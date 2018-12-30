@@ -24,10 +24,16 @@ void setup()
     Serial.println();
     Serial.print("WiFi connected. IP: ");
     Serial.println(WiFi.localIP());
+    Client.AddPacketHandler(0x2D, HandleTestPacket);
 }
 
 void loop()
 {
     Client.Tick();
     delay(20);
+}
+
+void HandleTestPacket(byte* Packet, bool IsUDP)
+{
+
 }

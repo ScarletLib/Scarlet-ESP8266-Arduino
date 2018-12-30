@@ -20,13 +20,15 @@ class ScarletClient
 {
     public:
         ScarletClient(char* ClientName, unsigned int LocalPortUDP, IPAddress Server, int PortTCP, int PortUDP, byte DEBUGMode);
+        typedef void (*PacketHandlerFxn)(byte* Packet, bool IsUDP);
         void Tick(); // Should be run as often as possible. At least 10Hz recommended to avoid falling behind on packet receiving.
         void SendPacketTCP(byte* Packet, unsigned int Length);
         void SendPacketUDP(byte* Packet, unsigned int Length);
-        //void AddPacketHandler(byte PacketID, )
+        void AddPacketHandler(byte ID, PacketHandlerFxn Handler);
         void SetWatchdogTimeout(unsigned int WatchdogTimeout);
     private:
-        void (ScarletClient::*PacketHandlers[0xFF])(byte* Packet, bool IsUDP); // Array of function pointers (packet handling functions).
+        //void (ScarletClient::*PacketHandlers[0xFF])(byte* Packet, bool IsUDP); // Array of function pointers (packet handling functions).
+        PacketHandlerFxn PacketHandlers[0xFF];
         bool Connect();
         void AddTimestamp(byte* Packet);
         void PrintHexArray(char* Array, int Length);
