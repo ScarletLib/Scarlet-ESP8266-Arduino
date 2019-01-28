@@ -26,6 +26,7 @@ class ScarletClient
         void SendPacketUDP(byte* Packet, unsigned int Length);
         void AddPacketHandler(byte ID, PacketHandlerFxn Handler);
         void SetWatchdogTimeout(unsigned int WatchdogTimeout);
+        void AddTimestamp(byte* Packet);
     private:
         typedef void (ScarletClient::*PacketHandlerFxnInt)(byte* Packet, bool IsUDP); // Janky AF. Why, C++, why?
         PacketHandlerFxn PacketHandlers[0xEF];
@@ -33,7 +34,6 @@ class ScarletClient
         void AddPacketHandlerInt(byte PacketID, PacketHandlerFxnInt Handler);
 
         bool Connect();
-        void AddTimestamp(byte* Packet);
         void PrintHexArray(char* Array, int Length);
         void PrintHexArray(byte* Array, int Length);
         byte* SubArray(char* Array, int Length);
